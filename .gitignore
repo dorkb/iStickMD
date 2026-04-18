@@ -6,8 +6,7 @@ dist
 .env.local
 
 # Local note data — never commit (contains personal content)
-data/
-notes/
+/data/
 
 # Claude Code session memory — user-specific, local only
 .claude/
