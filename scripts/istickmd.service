@@ -1,0 +1,19 @@
+[Unit]
+Description=iStickMD notes + apps server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dork
+Group=dork
+WorkingDirectory=/home/dork/istickmd
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=DATA_DIR=/home/dork/istickmd-data
+ExecStart=/home/dork/.bun/bin/bun src/server/index.ts
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

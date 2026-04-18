@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+*.log
+.env
+.env.local
+
+# Local note data — never commit (contains personal content)
+data/
+notes/
+
+# Claude Code session memory — user-specific, local only
+.claude/
