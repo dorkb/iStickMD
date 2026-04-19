@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { NotesApp } from "./apps/notes/NotesApp";
+import { AssistantApp } from "./apps/assistant/AssistantApp";
 import { UserProvider, useUser } from "./UserContext";
 import { UserPicker } from "./UserPicker";
 
-type AppId = "notes" | "console" | "agents";
+type AppId = "notes" | "assistant" | "console" | "agents";
 
 type AppDef = { id: AppId; label: string; icon: string };
 
 const APPS: AppDef[] = [
   { id: "notes", label: "Notes", icon: "✎" },
+  { id: "assistant", label: "Assistant", icon: "✦" },
   { id: "console", label: "Console", icon: "›_" },
   { id: "agents", label: "Agents", icon: "◈" },
 ];
@@ -64,6 +66,9 @@ function Shell({ onSwitchUser }: { onSwitchUser: () => void }) {
       </nav>
       <main className="content">
         {app === "notes" && <NotesApp user={current!.name} />}
+        {app === "assistant" && (
+          <AssistantApp user={current!.name} displayName={current!.displayName} />
+        )}
         {app === "console" && <Placeholder name="Claude Console" />}
         {app === "agents" && <Placeholder name="Agents" />}
       </main>

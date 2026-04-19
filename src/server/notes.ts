@@ -48,7 +48,7 @@ function parseFile(id: string, raw: string): Note {
   };
 }
 
-async function loadNotebook(user: string, notebook: string): Promise<Note[]> {
+export async function loadNotebook(user: string, notebook: string): Promise<Note[]> {
   const dir = notebookDir(user, notebook);
   if (!existsSync(dir)) return [];
   const files = await readdir(dir);
@@ -64,7 +64,7 @@ async function loadNotebook(user: string, notebook: string): Promise<Note[]> {
   return notes;
 }
 
-async function writeNote(
+export async function writeNote(
   user: string,
   notebook: string,
   note: Partial<Note> & { id: string; content: string },
@@ -80,6 +80,43 @@ async function writeNote(
     updated: new Date().toISOString(),
   });
   await writeFile(path.join(dir, `${id}.md`), out, "utf8");
+}
+
+export async function readNote(
+  user: string,
+  notebook: string,
+  id: string,
+): Promise<Note | null> {
+  const file = noteFile(user, notebook, id);
+  if (!existsSync(file)) return null;
+  return parseFile(id, await readFile(file, "utf8"));
+}
+
+export async function createNoteWithTitle(
+  user: string,
+  notebook: string,
+  title: string,
+  body = "",
+  color: Color = "yellow",
+): Promise<{ id: string }> {
+  const t = title.trim() || "untitled";
+  const base = slugify(t, "note");
+  const dir = notebookDir(user, notebook);
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+  let id = base;
+  let i = 1;
+  while (existsSync(path.join(dir, `${id}.md`))) id = `${base}-${++i}`;
+  const existing = await loadNotebook(user, notebook);
+  const maxOrder = existing.reduce((m, n) => Math.max(m, n.order), -1);
+  await writeNote(user, notebook, {
+    id,
+    title: t,
+    content: body,
+    color,
+    order: maxOrder + 1,
+    height: 200,
+  });
+  return { id };
 }
 
 const notes = new Hono<{
