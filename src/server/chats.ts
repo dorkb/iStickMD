@@ -16,15 +16,18 @@ type Entry =
       error?: string;
     };
 
+type Usage = { prompt: number; completion: number };
+
 type Chat = {
   id: string;
   title: string;
   created: string;
   updated: string;
   entries: Entry[];
+  usage: Usage;
 };
 
-type ChatSummary = Omit<Chat, "entries">;
+type ChatSummary = Omit<Chat, "entries" | "usage">;
 
 function chatsDir(user: string): string {
   return path.join(userDir(user), "_chats");
@@ -94,7 +97,11 @@ chats.get("/:id", async (c) => {
 });
 
 chats.post("/", async (c) => {
-  const body = await c.req.json<{ title?: string; entries?: Entry[] }>();
+  const body = await c.req.json<{
+    title?: string;
+    entries?: Entry[];
+    usage?: Usage;
+  }>();
   const title = (body.title ?? "untitled").trim() || "untitled";
   const dir = chatsDir(c.var.user);
   if (!existsSync(dir)) await mkdir(dir, { recursive: true });
@@ -109,6 +116,7 @@ chats.post("/", async (c) => {
     created: now,
     updated: now,
     entries: body.entries ?? [],
+    usage: body.usage ?? { prompt: 0, completion: 0 },
   };
   await writeChat(c.var.user, chat);
   return c.json(chat);
@@ -119,11 +127,16 @@ chats.put("/:id", async (c) => {
   if (!validSlug(id)) return c.json({ error: "invalid id" }, 400);
   const existing = await readChat(c.var.user, id);
   if (!existing) return c.json({ error: "not found" }, 404);
-  const body = await c.req.json<{ title?: string; entries?: Entry[] }>();
+  const body = await c.req.json<{
+    title?: string;
+    entries?: Entry[];
+    usage?: Usage;
+  }>();
   const chat: Chat = {
     ...existing,
     title: body.title ?? existing.title,
     entries: body.entries ?? existing.entries,
+    usage: body.usage ?? existing.usage ?? { prompt: 0, completion: 0 },
     updated: new Date().toISOString(),
   };
   await writeChat(c.var.user, chat);

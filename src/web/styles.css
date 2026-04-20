@@ -284,6 +284,14 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; }
   height: 100%;
   min-height: 0;
 }
+.asst-header-right {
+  display: flex; align-items: center; gap: 12px;
+}
+.asst-token-counter {
+  font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .3px;
+}
 .chat-sidebar {
   background: var(--sidebar);
   border-right: 1px solid var(--border);

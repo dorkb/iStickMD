@@ -19,8 +19,12 @@ type ServerEvent =
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; result: unknown }
   | { type: "tool_error"; name: string; error: string }
+  | { type: "usage"; prompt: number; completion: number }
   | { type: "done" }
   | { type: "error"; error: string };
+
+type Usage = { prompt: number; completion: number };
+const ZERO_USAGE: Usage = { prompt: 0, completion: 0 };
 
 type ChatSummary = {
   id: string;
@@ -35,11 +39,14 @@ export function AssistantApp({ user, displayName }: Props) {
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [usage, setUsage] = useState<Usage>(ZERO_USAGE);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentIdRef = useRef<string | null>(null);
   currentIdRef.current = currentId;
+  const usageRef = useRef<Usage>(ZERO_USAGE);
+  usageRef.current = usage;
 
   const refreshChats = useCallback(async () => {
     try {
@@ -54,6 +61,7 @@ export function AssistantApp({ user, displayName }: Props) {
   useEffect(() => {
     setEntries([]);
     setCurrentId(null);
+    setUsage(ZERO_USAGE);
     refreshChats();
   }, [user, refreshChats]);
 
@@ -66,12 +74,17 @@ export function AssistantApp({ user, displayName }: Props) {
     try {
       const r = await fetch(`/api/u/${user}/chats/${id}`);
       if (!r.ok) return;
-      const chat = (await r.json()) as { id: string; entries: Entry[] };
+      const chat = (await r.json()) as {
+        id: string;
+        entries: Entry[];
+        usage?: Usage;
+      };
       const cleaned: Entry[] = chat.entries.map((e) =>
         e.kind === "assistant" ? { ...e, streaming: false } : e,
       );
       setEntries(cleaned);
       setCurrentId(chat.id);
+      setUsage(chat.usage ?? ZERO_USAGE);
     } catch (e) {
       console.error(e);
     }
@@ -81,6 +94,7 @@ export function AssistantApp({ user, displayName }: Props) {
     if (busy) return;
     setEntries([]);
     setCurrentId(null);
+    setUsage(ZERO_USAGE);
   };
 
   const deleteChat = async (id: string) => {
@@ -90,6 +104,7 @@ export function AssistantApp({ user, displayName }: Props) {
       if (currentIdRef.current === id) {
         setEntries([]);
         setCurrentId(null);
+        setUsage(ZERO_USAGE);
       }
       await refreshChats();
     } catch (e) {
@@ -113,18 +128,19 @@ export function AssistantApp({ user, displayName }: Props) {
         ? firstUser.content.replace(/\s+/g, " ").trim().slice(0, 60) ||
           "untitled"
         : "untitled";
+    const payloadUsage = usageRef.current;
     try {
       if (currentIdRef.current) {
         await fetch(`/api/u/${user}/chats/${currentIdRef.current}`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ title, entries: clean }),
+          body: JSON.stringify({ title, entries: clean, usage: payloadUsage }),
         });
       } else {
         const r = await fetch(`/api/u/${user}/chats`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ title, entries: clean }),
+          body: JSON.stringify({ title, entries: clean, usage: payloadUsage }),
         });
         if (r.ok) {
           const chat = (await r.json()) as { id: string };
@@ -238,6 +254,11 @@ export function AssistantApp({ user, displayName }: Props) {
               }
               return out;
             });
+          } else if (evt.type === "usage") {
+            setUsage((u) => ({
+              prompt: u.prompt + evt.prompt,
+              completion: u.completion + evt.completion,
+            }));
           } else if (evt.type === "error") {
             setEntries((prev) => [
               ...prev.map((e) =>
@@ -321,13 +342,16 @@ export function AssistantApp({ user, displayName }: Props) {
       <section className="chat-main">
         <div className="content-header">
           <h1>ASSISTANT</h1>
-          <button
-            className="btn"
-            onClick={newChat}
-            disabled={busy || entries.length === 0}
-          >
-            new chat
-          </button>
+          <div className="asst-header-right">
+            <TokenCounter usage={usage} />
+            <button
+              className="btn"
+              onClick={newChat}
+              disabled={busy || entries.length === 0}
+            >
+              new chat
+            </button>
+          </div>
         </div>
         <div className="asst-thread" ref={scrollRef}>
           {entries.length === 0 && (
@@ -359,6 +383,24 @@ export function AssistantApp({ user, displayName }: Props) {
       </section>
     </div>
   );
+}
+
+function TokenCounter({ usage }: { usage: Usage }) {
+  const total = usage.prompt + usage.completion;
+  if (total === 0) return null;
+  return (
+    <span
+      className="asst-token-counter"
+      title={`${usage.prompt} prompt + ${usage.completion} completion`}
+    >
+      {fmtTokens(total)} tok · {fmtTokens(usage.prompt)}↑ {fmtTokens(usage.completion)}↓
+    </span>
+  );
+}
+
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(n < 10000 ? 1 : 0)}k`;
 }
 
 function EntryView({ entry }: { entry: Entry }) {

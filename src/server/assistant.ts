@@ -343,6 +343,8 @@ assistant.post("/chat", async (c) => {
             let chunk: {
               message?: { content?: string; tool_calls?: ToolCall[] };
               done?: boolean;
+              prompt_eval_count?: number;
+              eval_count?: number;
             };
             try {
               chunk = JSON.parse(line);
@@ -357,7 +359,14 @@ assistant.post("/chat", async (c) => {
             if (msg?.tool_calls?.length) {
               toolCalls = msg.tool_calls;
             }
-            if (chunk.done) break outer;
+            if (chunk.done) {
+              const prompt = chunk.prompt_eval_count ?? 0;
+              const completion = chunk.eval_count ?? 0;
+              if (prompt || completion) {
+                await send({ type: "usage", prompt, completion });
+              }
+              break outer;
+            }
           }
         }
 
