@@ -391,6 +391,7 @@ const TOOL_ICON: Record<string, string> = {
   read_note: "📖",
   create_note: "✏️",
   update_note: "✏️",
+  fetch_url: "🌐",
 };
 
 function ToolCallView({
@@ -449,6 +450,8 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
       return `${args.notebook ?? ""}/${args.id ?? ""}`;
     case "create_note":
       return `${args.notebook ?? ""}: "${args.title ?? ""}"`;
+    case "fetch_url":
+      return String(args.url ?? "");
     default:
       return "";
   }

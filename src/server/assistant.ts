@@ -11,6 +11,9 @@ import { validSlug } from "./store";
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "gemma4:e2b";
 const KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE ?? "24h";
+const JINA_READER_URL = process.env.JINA_READER_URL ?? "https://r.jina.ai";
+const FETCH_URL_MAX_CHARS = Number(process.env.FETCH_URL_MAX_CHARS ?? 10000);
+const FETCH_URL_TIMEOUT_MS = Number(process.env.FETCH_URL_TIMEOUT_MS ?? 20000);
 
 const COLORS = ["yellow", "pink", "blue", "green", "purple", "orange", "gray"] as const;
 type Color = (typeof COLORS)[number];
@@ -103,7 +106,70 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "fetch_url",
+      description:
+        "Fetch a web page and return it as clean markdown. Use this to read articles, docs, or any URL the user mentions. The content is trimmed to a few thousand characters; follow links by calling fetch_url again on the new URL.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "absolute http(s) URL to fetch",
+          },
+        },
+        required: ["url"],
+      },
+    },
+  },
 ];
+
+async function fetchUrlAsMarkdown(url: string): Promise<{
+  url: string;
+  content: string;
+  truncated: boolean;
+}> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`invalid url: ${url}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`unsupported protocol: ${parsed.protocol}`);
+  }
+  const target = `${JINA_READER_URL.replace(/\/$/, "")}/${parsed.toString()}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_URL_TIMEOUT_MS);
+  try {
+    const res = await fetch(target, {
+      signal: ctrl.signal,
+      headers: { accept: "text/plain, text/markdown, */*" },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `reader ${res.status}: ${body.slice(0, 200) || res.statusText}`,
+      );
+    }
+    const text = await res.text();
+    const truncated = text.length > FETCH_URL_MAX_CHARS;
+    return {
+      url: parsed.toString(),
+      content: truncated ? text.slice(0, FETCH_URL_MAX_CHARS) : text,
+      truncated,
+    };
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(`fetch timed out after ${FETCH_URL_TIMEOUT_MS}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function assertNotebookExists(user: string, slug: string): Promise<void> {
   const list = await loadNotebooks(user);
@@ -178,6 +244,11 @@ async function runTool(
       });
       return { ok: true, id: existing.id };
     }
+    case "fetch_url": {
+      const url = String(args.url ?? "").trim();
+      if (!url) throw new Error("url required");
+      return await fetchUrlAsMarkdown(url);
+    }
     default:
       throw new Error(`unknown tool: ${name}`);
   }
@@ -198,6 +269,7 @@ async function systemPrompt(user: string, displayName: string): Promise<string> 
     ``,
     `Use the provided tools to read and write notes. Don't ask for confirmation — just do what's asked.`,
     `When creating notes, pick a short descriptive title and write the body as clean markdown.`,
+    `You can also call fetch_url to read web pages. Use it when the user asks about something outside their notes (news, docs, articles) or shares a link. Responses are trimmed to a few thousand characters — call fetch_url again on linked URLs if you need more detail. Cite the source URL when summarizing web content.`,
     `After a tool call completes, always send one short sentence telling the user what you did (e.g. "Created 'Ideas' in the aaron notebook.").`,
     `Be direct and concise. If a tool returns an error, explain briefly and try again with corrected arguments if possible.`,
   ].join("\n");
