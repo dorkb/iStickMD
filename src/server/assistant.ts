@@ -380,6 +380,10 @@ assistant.post("/chat", async (c) => {
             let chunk: {
               message?: { content?: string; tool_calls?: ToolCall[] };
               done?: boolean;
+              prompt_eval_count?: number;
+              eval_count?: number;
+              eval_duration?: number;
+              total_duration?: number;
             };
             try {
               chunk = JSON.parse(line);
@@ -394,7 +398,16 @@ assistant.post("/chat", async (c) => {
             if (msg?.tool_calls?.length) {
               toolCalls = msg.tool_calls;
             }
-            if (chunk.done) break outer;
+            if (chunk.done) {
+              send({
+                type: "stats",
+                prompt_tokens: chunk.prompt_eval_count ?? 0,
+                completion_tokens: chunk.eval_count ?? 0,
+                eval_duration_ms: Math.round((chunk.eval_duration ?? 0) / 1_000_000),
+                total_duration_ms: Math.round((chunk.total_duration ?? 0) / 1_000_000),
+              });
+              break outer;
+            }
           }
         }
 

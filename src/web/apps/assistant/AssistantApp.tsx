@@ -19,8 +19,25 @@ type ServerEvent =
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; result: unknown }
   | { type: "tool_error"; name: string; error: string }
+  | {
+      type: "stats";
+      prompt_tokens: number;
+      completion_tokens: number;
+      eval_duration_ms: number;
+      total_duration_ms: number;
+    }
+  | { type: "ready" }
+  | { type: "ping" }
   | { type: "done" }
   | { type: "error"; error: string };
+
+type Stats = {
+  prompt: number;
+  completion: number;
+  lastTokensPerSec: number | null;
+};
+
+const ZERO_STATS: Stats = { prompt: 0, completion: 0, lastTokensPerSec: null };
 
 type Props = { user: string; displayName: string };
 
@@ -28,6 +45,7 @@ export function AssistantApp({ user, displayName }: Props) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [stats, setStats] = useState<Stats>(ZERO_STATS);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -135,6 +153,18 @@ export function AssistantApp({ user, displayName }: Props) {
               }
               return out;
             });
+          } else if (evt.type === "stats") {
+            const tps =
+              evt.eval_duration_ms > 0 && evt.completion_tokens > 0
+                ? (evt.completion_tokens * 1000) / evt.eval_duration_ms
+                : null;
+            setStats((prev) => ({
+              prompt: prev.prompt + evt.prompt_tokens,
+              completion: prev.completion + evt.completion_tokens,
+              lastTokensPerSec: tps ?? prev.lastTokensPerSec,
+            }));
+          } else if (evt.type === "ready" || evt.type === "ping") {
+            // no-op: used server-side to keep the connection warm
           } else if (evt.type === "error") {
             setEntries((prev) => [
               ...prev.map((e) =>
@@ -173,9 +203,13 @@ export function AssistantApp({ user, displayName }: Props) {
     <div className="assistant-layout">
       <div className="content-header">
         <h1>ASSISTANT</h1>
+        <TokenCounter stats={stats} />
         <button
           className="btn"
-          onClick={() => setEntries([])}
+          onClick={() => {
+            setEntries([]);
+            setStats(ZERO_STATS);
+          }}
           disabled={busy || entries.length === 0}
         >
           clear
@@ -242,7 +276,27 @@ const TOOL_ICON: Record<string, string> = {
   read_note: "📖",
   create_note: "✏️",
   update_note: "✏️",
+  web_search: "🔎",
+  fetch_url: "🌐",
 };
+
+function TokenCounter({ stats }: { stats: Stats }) {
+  if (stats.prompt === 0 && stats.completion === 0) return null;
+  const fmt = (n: number) => n.toLocaleString();
+  return (
+    <div className="asst-stats" title="tokens consumed this session">
+      <span>IN {fmt(stats.prompt)}</span>
+      <span>·</span>
+      <span>OUT {fmt(stats.completion)}</span>
+      {stats.lastTokensPerSec !== null && (
+        <>
+          <span>·</span>
+          <span>{stats.lastTokensPerSec.toFixed(1)} T/S</span>
+        </>
+      )}
+    </div>
+  );
+}
 
 function ToolCallView({
   entry,
@@ -300,6 +354,10 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
       return `${args.notebook ?? ""}/${args.id ?? ""}`;
     case "create_note":
       return `${args.notebook ?? ""}: "${args.title ?? ""}"`;
+    case "web_search":
+      return String(args.query ?? "");
+    case "fetch_url":
+      return String(args.url ?? "");
     default:
       return "";
   }

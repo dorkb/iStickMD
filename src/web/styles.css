@@ -288,6 +288,12 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; }
   display: flex; flex-direction: column; gap: 10px;
   padding: 8px 0 16px;
 }
+.asst-stats {
+  display: flex; gap: 8px; align-items: center;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--muted); opacity: .75;
+  letter-spacing: .3px;
+}
 .asst-msg { display: flex; }
 .asst-msg-user { justify-content: flex-end; }
 .asst-msg-ai { justify-content: flex-start; }
