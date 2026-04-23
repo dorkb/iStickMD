@@ -4,6 +4,7 @@ import users, { loadUsers } from "./users";
 import notebooks from "./notebooks";
 import notes from "./notes";
 import assistant from "./assistant";
+import chats from "./chats";
 import { validSlug } from "./store";
 
 type Vars = { user: string; notebook: string };
@@ -26,6 +27,7 @@ u.use("*", async (c, next) => {
 });
 u.route("/notebooks", notebooks);
 u.route("/assistant", assistant);
+u.route("/chats", chats);
 
 // /api/u/:user/nb/:notebook/notes (nested)
 const nb = new Hono<{ Variables: Vars }>();
