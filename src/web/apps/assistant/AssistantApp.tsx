@@ -56,6 +56,7 @@ export function AssistantApp({ user, displayName }: Props) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
 
   // Refs so persist() called from finally{} always sees the latest values
   // without being recreated each render.
@@ -82,8 +83,18 @@ export function AssistantApp({ user, displayName }: Props) {
   }, [user, refreshChats]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    const el = scrollRef.current;
+    if (el && pinnedRef.current) el.scrollTo({ top: el.scrollHeight });
   }, [entries]);
+
+  const onThreadScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Pin when within ~40px of the bottom; user gets a small buffer so
+    // fractional scrolling from content growth doesn't unpin them.
+    pinnedRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  };
 
   const openChat = async (id: string) => {
     if (busy || id === currentId) return;
@@ -98,6 +109,7 @@ export function AssistantApp({ user, displayName }: Props) {
       const cleaned: Entry[] = chat.entries.map((e) =>
         e.kind === "assistant" ? { ...e, streaming: false } : e,
       );
+      pinnedRef.current = true;
       setEntries(cleaned);
       setCurrentId(chat.id);
       setStats({
@@ -187,6 +199,7 @@ export function AssistantApp({ user, displayName }: Props) {
     if (!text || busy) return;
     setInput("");
     setBusy(true);
+    pinnedRef.current = true;
 
     const userEntry: Entry = { kind: "user", content: text };
     setEntries((prev) => [...prev, userEntry]);
@@ -378,7 +391,7 @@ export function AssistantApp({ user, displayName }: Props) {
             new chat
           </button>
         </div>
-        <div className="asst-thread" ref={scrollRef}>
+        <div className="asst-thread" ref={scrollRef} onScroll={onThreadScroll}>
           {entries.length === 0 && (
             <div className="empty-state">
               Ask about your notes, or ask to create / edit one.
