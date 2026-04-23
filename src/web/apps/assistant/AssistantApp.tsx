@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -39,18 +39,140 @@ type Stats = {
 
 const ZERO_STATS: Stats = { prompt: 0, completion: 0, lastTokensPerSec: null };
 
+type ChatSummary = {
+  id: string;
+  title: string;
+  created: string;
+  updated: string;
+};
+
 type Props = { user: string; displayName: string };
 
 export function AssistantApp({ user, displayName }: Props) {
+  const [chats, setChats] = useState<ChatSummary[]>([]);
+  const [currentId, setCurrentId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [stats, setStats] = useState<Stats>(ZERO_STATS);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [stats, setStats] = useState<Stats>(ZERO_STATS);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Refs so persist() called from finally{} always sees the latest values
+  // without being recreated each render.
+  const currentIdRef = useRef<string | null>(null);
+  currentIdRef.current = currentId;
+  const statsRef = useRef<Stats>(ZERO_STATS);
+  statsRef.current = stats;
+
+  const refreshChats = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/u/${user}/chats`);
+      if (!r.ok) return;
+      setChats((await r.json()) as ChatSummary[]);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    setEntries([]);
+    setCurrentId(null);
+    setStats(ZERO_STATS);
+    refreshChats();
+  }, [user, refreshChats]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [entries]);
+
+  const openChat = async (id: string) => {
+    if (busy || id === currentId) return;
+    try {
+      const r = await fetch(`/api/u/${user}/chats/${id}`);
+      if (!r.ok) return;
+      const chat = (await r.json()) as {
+        id: string;
+        entries: Entry[];
+        usage?: { prompt: number; completion: number };
+      };
+      const cleaned: Entry[] = chat.entries.map((e) =>
+        e.kind === "assistant" ? { ...e, streaming: false } : e,
+      );
+      setEntries(cleaned);
+      setCurrentId(chat.id);
+      setStats({
+        prompt: chat.usage?.prompt ?? 0,
+        completion: chat.usage?.completion ?? 0,
+        lastTokensPerSec: null,
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const newChat = () => {
+    if (busy) return;
+    setEntries([]);
+    setCurrentId(null);
+    setStats(ZERO_STATS);
+  };
+
+  const deleteChat = async (id: string) => {
+    if (!confirm("Delete this chat?")) return;
+    try {
+      await fetch(`/api/u/${user}/chats/${id}`, { method: "DELETE" });
+      if (currentIdRef.current === id) {
+        setEntries([]);
+        setCurrentId(null);
+        setStats(ZERO_STATS);
+      }
+      await refreshChats();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const persist = async (finalEntries: Entry[]) => {
+    const clean = finalEntries
+      .filter((e) => (e.kind === "tool" ? e.status !== "running" : true))
+      .map((e) =>
+        e.kind === "assistant" ? { ...e, streaming: false } : e,
+      );
+    if (clean.length === 0) return;
+    const firstUser = clean.find((e) => e.kind === "user");
+    const title =
+      firstUser && firstUser.kind === "user"
+        ? firstUser.content.replace(/\s+/g, " ").trim().slice(0, 60) ||
+          "untitled"
+        : "untitled";
+    const usage = {
+      prompt: statsRef.current.prompt,
+      completion: statsRef.current.completion,
+    };
+    try {
+      if (currentIdRef.current) {
+        await fetch(`/api/u/${user}/chats/${currentIdRef.current}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title, entries: clean, usage }),
+        });
+      } else {
+        const r = await fetch(`/api/u/${user}/chats`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title, entries: clean, usage }),
+        });
+        if (r.ok) {
+          const chat = (await r.json()) as { id: string };
+          currentIdRef.current = chat.id;
+          setCurrentId(chat.id);
+        }
+      }
+      await refreshChats();
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const historyForServer = () =>
     entries
@@ -118,7 +240,6 @@ export function AssistantApp({ user, displayName }: Props) {
               return out;
             });
           } else if (evt.type === "tool_call") {
-            // finalize any streaming assistant bubble before the tool call
             setEntries((prev) => {
               const out = prev.map((e) =>
                 e.kind === "assistant" && e.streaming ? { ...e, streaming: false } : e,
@@ -189,6 +310,10 @@ export function AssistantApp({ user, displayName }: Props) {
       ]);
     } finally {
       setBusy(false);
+      setEntries((prev) => {
+        void persist(prev);
+        return prev;
+      });
     }
   };
 
@@ -201,47 +326,86 @@ export function AssistantApp({ user, displayName }: Props) {
 
   return (
     <div className="assistant-layout">
-      <div className="content-header">
-        <h1>ASSISTANT</h1>
-        <TokenCounter stats={stats} />
-        <button
-          className="btn"
-          onClick={() => {
-            setEntries([]);
-            setStats(ZERO_STATS);
-          }}
-          disabled={busy || entries.length === 0}
-        >
-          clear
-        </button>
-      </div>
-      <div className="asst-thread" ref={scrollRef}>
-        {entries.length === 0 && (
-          <div className="empty-state">
-            Ask about your notes, or ask to create / edit one.
-          </div>
-        )}
-        {entries.map((e, i) => (
-          <EntryView key={i} entry={e} />
-        ))}
-      </div>
-      <div className="asst-composer">
-        <textarea
-          value={input}
-          onChange={(ev) => setInput(ev.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={busy ? "thinking…" : "Ask something (⏎ to send, ⇧⏎ newline)"}
-          disabled={busy}
-          rows={2}
-        />
-        <button
-          className="btn btn-primary"
-          onClick={send}
-          disabled={busy || !input.trim()}
-        >
-          send
-        </button>
-      </div>
+      <aside className="chat-sidebar">
+        <div className="chat-sidebar-header">
+          <span>CHATS</span>
+          <button
+            className="nb-add"
+            onClick={newChat}
+            disabled={busy}
+            title="New chat"
+            aria-label="New chat"
+          >
+            +
+          </button>
+        </div>
+        <div className="chat-list">
+          {chats.length === 0 && (
+            <div className="chat-empty">No previous chats.</div>
+          )}
+          {chats.map((c) => (
+            <div
+              key={c.id}
+              className={`chat-item ${currentId === c.id ? "active" : ""}`}
+              onClick={() => openChat(c.id)}
+              title={c.title}
+            >
+              <span className="chat-item-title">{c.title || "untitled"}</span>
+              <button
+                className="chat-item-del"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteChat(c.id);
+                }}
+                title="Delete chat"
+                aria-label="Delete chat"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      </aside>
+      <section className="chat-main">
+        <div className="content-header">
+          <h1>ASSISTANT</h1>
+          <TokenCounter stats={stats} />
+          <button
+            className="btn"
+            onClick={newChat}
+            disabled={busy || entries.length === 0}
+          >
+            new chat
+          </button>
+        </div>
+        <div className="asst-thread" ref={scrollRef}>
+          {entries.length === 0 && (
+            <div className="empty-state">
+              Ask about your notes, or ask to create / edit one.
+            </div>
+          )}
+          {entries.map((e, i) => (
+            <EntryView key={i} entry={e} />
+          ))}
+        </div>
+        <div className="asst-composer">
+          <textarea
+            value={input}
+            onChange={(ev) => setInput(ev.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={busy ? "thinking…" : "Ask something (⏎ to send, ⇧⏎ newline)"}
+            disabled={busy}
+            rows={2}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={send}
+            disabled={busy || !input.trim()}
+          >
+            send
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -284,7 +448,7 @@ function TokenCounter({ stats }: { stats: Stats }) {
   if (stats.prompt === 0 && stats.completion === 0) return null;
   const fmt = (n: number) => n.toLocaleString();
   return (
-    <div className="asst-stats" title="tokens consumed this session">
+    <div className="asst-stats" title="tokens consumed this chat">
       <span>IN {fmt(stats.prompt)}</span>
       <span>·</span>
       <span>OUT {fmt(stats.completion)}</span>
