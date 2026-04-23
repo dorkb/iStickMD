@@ -11,6 +11,9 @@ WorkingDirectory=/home/dork/istickmd
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=DATA_DIR=/home/dork/istickmd-data
+Environment=OLLAMA_URL=http://192.168.8.236:11434
+Environment=OLLAMA_MODEL=gemma4:26b
+Environment=SEARXNG_URL=http://127.0.0.1:8080
 ExecStart=/home/dork/.bun/bin/bun src/server/index.ts
 Restart=on-failure
 RestartSec=3
