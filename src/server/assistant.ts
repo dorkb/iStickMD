@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
 import { loadNotebooks } from "./notebooks";
 import {
   loadNotebook,
@@ -11,6 +13,9 @@ import { validSlug } from "./store";
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "gemma4:e2b";
 const KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE ?? "24h";
+const SEARXNG_URL = process.env.SEARXNG_URL ?? "http://127.0.0.1:8080";
+const FETCH_MAX_CHARS = 8000;
+const FETCH_TIMEOUT_MS = 15000;
 
 const COLORS = ["yellow", "pink", "blue", "green", "purple", "orange", "gray"] as const;
 type Color = (typeof COLORS)[number];
@@ -103,7 +108,63 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Search the public web. Returns a list of results with title, url, and snippet. Use when the user asks about something not in their notes.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "search terms" },
+          max_results: {
+            type: "number",
+            description: "how many results to return (default 5, max 10)",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fetch_url",
+      description:
+        "Fetch a web page and return its main readable text. Use after web_search to actually read a result, or when the user gives you a URL directly.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "full http(s) URL" },
+        },
+        required: ["url"],
+      },
+    },
+  },
 ];
+
+function extractReadable(html: string): { title: string; content: string } {
+  const { document } = parseHTML(html);
+  try {
+    const reader = new Readability(document as unknown as Document);
+    const article = reader.parse();
+    if (article?.textContent) {
+      return {
+        title: (article.title ?? "").trim(),
+        content: article.textContent.trim().replace(/\n{3,}/g, "\n\n"),
+      };
+    }
+  } catch {
+    // fall through to plain-text fallback
+  }
+  const title = document.querySelector("title")?.textContent ?? "";
+  const body = document.body?.textContent ?? "";
+  return {
+    title: title.trim(),
+    content: body.replace(/\s+/g, " ").trim(),
+  };
+}
 
 async function assertNotebookExists(user: string, slug: string): Promise<void> {
   const list = await loadNotebooks(user);
@@ -178,6 +239,53 @@ async function runTool(
       });
       return { ok: true, id: existing.id };
     }
+    case "web_search": {
+      const query = String(args.query ?? "").trim();
+      if (!query) throw new Error("query required");
+      const raw = Number(args.max_results ?? 5);
+      const n = Math.min(Math.max(1, Number.isFinite(raw) ? Math.floor(raw) : 5), 10);
+      const url = `${SEARXNG_URL}/search?q=${encodeURIComponent(query)}&format=json`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`searxng ${res.status}`);
+      const json = (await res.json()) as {
+        results?: Array<{ url?: string; title?: string; content?: string }>;
+      };
+      return (json.results ?? []).slice(0, n).map((r) => ({
+        title: (r.title ?? "").trim(),
+        url: r.url ?? "",
+        snippet: (r.content ?? "").slice(0, 300),
+      }));
+    }
+    case "fetch_url": {
+      const url = String(args.url ?? "").trim();
+      if (!/^https?:\/\//i.test(url)) {
+        throw new Error("url must start with http:// or https://");
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, {
+          headers: { "user-agent": "iStickMD-Assistant/0.1" },
+          signal: controller.signal,
+          redirect: "follow",
+        });
+        if (!res.ok) throw new Error(`fetch ${res.status}`);
+        const ctype = res.headers.get("content-type") ?? "";
+        if (!ctype.includes("text/html") && !ctype.includes("application/xhtml")) {
+          const txt = (await res.text()).slice(0, FETCH_MAX_CHARS);
+          return { url: res.url, title: "", content: txt };
+        }
+        const html = await res.text();
+        const { title, content } = extractReadable(html);
+        return {
+          url: res.url,
+          title,
+          content: content.slice(0, FETCH_MAX_CHARS),
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     default:
       throw new Error(`unknown tool: ${name}`);
   }
@@ -197,6 +305,7 @@ async function systemPrompt(user: string, displayName: string): Promise<string> 
     nbLines,
     ``,
     `Use the provided tools to read and write notes. Don't ask for confirmation — just do what's asked.`,
+    `You can also search the web with web_search and read pages with fetch_url. Prefer web_search first to find candidate URLs, then fetch_url on the most relevant one. Cite the source URL when you use web info in a note.`,
     `When creating notes, pick a short descriptive title and write the body as clean markdown.`,
     `After a tool call completes, always send one short sentence telling the user what you did (e.g. "Created 'Ideas' in the aaron notebook.").`,
     `Be direct and concise. If a tool returns an error, explain briefly and try again with corrected arguments if possible.`,
@@ -271,6 +380,10 @@ assistant.post("/chat", async (c) => {
             let chunk: {
               message?: { content?: string; tool_calls?: ToolCall[] };
               done?: boolean;
+              prompt_eval_count?: number;
+              eval_count?: number;
+              eval_duration?: number;
+              total_duration?: number;
             };
             try {
               chunk = JSON.parse(line);
@@ -285,7 +398,16 @@ assistant.post("/chat", async (c) => {
             if (msg?.tool_calls?.length) {
               toolCalls = msg.tool_calls;
             }
-            if (chunk.done) break outer;
+            if (chunk.done) {
+              send({
+                type: "stats",
+                prompt_tokens: chunk.prompt_eval_count ?? 0,
+                completion_tokens: chunk.eval_count ?? 0,
+                eval_duration_ms: Math.round((chunk.eval_duration ?? 0) / 1_000_000),
+                total_duration_ms: Math.round((chunk.total_duration ?? 0) / 1_000_000),
+              });
+              break outer;
+            }
           }
         }
 
