@@ -46,15 +46,16 @@ type ChatSummary = {
   updated: string;
 };
 
-type Props = { user: string; displayName: string };
+type Props = { user: string; displayName: string; isMobile?: boolean };
 
-export function AssistantApp({ user, displayName }: Props) {
+export function AssistantApp({ user, displayName, isMobile = false }: Props) {
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [stats, setStats] = useState<Stats>(ZERO_STATS);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
 
@@ -97,7 +98,10 @@ export function AssistantApp({ user, displayName }: Props) {
   };
 
   const openChat = async (id: string) => {
-    if (busy || id === currentId) return;
+    if (busy || id === currentId) {
+      setDrawerOpen(false);
+      return;
+    }
     try {
       const r = await fetch(`/api/u/${user}/chats/${id}`);
       if (!r.ok) return;
@@ -117,6 +121,7 @@ export function AssistantApp({ user, displayName }: Props) {
         completion: chat.usage?.completion ?? 0,
         lastTokensPerSec: null,
       });
+      setDrawerOpen(false);
     } catch (e) {
       console.error(e);
     }
@@ -127,6 +132,7 @@ export function AssistantApp({ user, displayName }: Props) {
     setEntries([]);
     setCurrentId(null);
     setStats(ZERO_STATS);
+    setDrawerOpen(false);
   };
 
   const deleteChat = async (id: string) => {
@@ -337,6 +343,117 @@ export function AssistantApp({ user, displayName }: Props) {
     }
   };
 
+  const ChatList = (
+    <div className="chat-list">
+      {chats.length === 0 && (
+        <div className="chat-empty">No previous chats.</div>
+      )}
+      {chats.map((c) => (
+        <div
+          key={c.id}
+          className={`chat-item ${currentId === c.id ? "active" : ""}`}
+          onClick={() => openChat(c.id)}
+          title={c.title}
+        >
+          <span className="chat-item-title">{c.title || "untitled"}</span>
+          <button
+            className="chat-item-del"
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteChat(c.id);
+            }}
+            title="Delete chat"
+            aria-label="Delete chat"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (isMobile) {
+    const currentTitle =
+      chats.find((c) => c.id === currentId)?.title || "New chat";
+    return (
+      <div className="assistant-mobile">
+        <header className="mobile-topbar">
+          <button
+            className="mobile-iconbtn"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open chats"
+          >
+            ☰
+          </button>
+          <div className="mobile-title" title={currentTitle}>
+            {currentTitle}
+          </div>
+          <button
+            className="mobile-iconbtn"
+            onClick={newChat}
+            disabled={busy}
+            aria-label="New chat"
+          >
+            ✎
+          </button>
+        </header>
+        <div
+          className="asst-thread asst-thread-mobile"
+          ref={scrollRef}
+          onScroll={onThreadScroll}
+        >
+          {entries.length === 0 && (
+            <div className="empty-state">
+              Ask about your notes, or ask to create / edit one.
+            </div>
+          )}
+          {entries.map((e, i) => (
+            <EntryView key={i} entry={e} />
+          ))}
+        </div>
+        <div className="asst-composer asst-composer-mobile">
+          <textarea
+            value={input}
+            onChange={(ev) => setInput(ev.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={busy ? "thinking…" : "Message"}
+            disabled={busy}
+            rows={1}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={send}
+            disabled={busy || !input.trim()}
+          >
+            ↑
+          </button>
+        </div>
+        {drawerOpen && (
+          <div className="mobile-drawer-root" role="dialog" aria-label="Chats">
+            <div
+              className="mobile-drawer-backdrop"
+              onClick={() => setDrawerOpen(false)}
+            />
+            <aside className="mobile-drawer">
+              <div className="mobile-drawer-header">
+                <span>CHATS</span>
+                <button
+                  className="nb-add"
+                  onClick={newChat}
+                  disabled={busy}
+                  aria-label="New chat"
+                >
+                  +
+                </button>
+              </div>
+              <div className="mobile-drawer-list">{ChatList}</div>
+            </aside>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="assistant-layout">
       <aside className="chat-sidebar">
@@ -352,32 +469,7 @@ export function AssistantApp({ user, displayName }: Props) {
             +
           </button>
         </div>
-        <div className="chat-list">
-          {chats.length === 0 && (
-            <div className="chat-empty">No previous chats.</div>
-          )}
-          {chats.map((c) => (
-            <div
-              key={c.id}
-              className={`chat-item ${currentId === c.id ? "active" : ""}`}
-              onClick={() => openChat(c.id)}
-              title={c.title}
-            >
-              <span className="chat-item-title">{c.title || "untitled"}</span>
-              <button
-                className="chat-item-del"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteChat(c.id);
-                }}
-                title="Delete chat"
-                aria-label="Delete chat"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
+        {ChatList}
       </aside>
       <section className="chat-main">
         <div className="content-header">

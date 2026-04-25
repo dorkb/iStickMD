@@ -25,14 +25,15 @@ import {
   saveNote,
 } from "./api";
 
-type Props = { user: string };
+type Props = { user: string; isMobile?: boolean };
 
-export function NotesApp({ user }: Props) {
+export function NotesApp({ user, isMobile = false }: Props) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [selectedNb, setSelectedNb] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -90,8 +91,9 @@ export function NotesApp({ user }: Props) {
     if (!selectedNb) return;
     const title = prompt("Note title?")?.trim();
     if (!title) return;
-    await createNote(user, selectedNb, title);
+    const created = await createNote(user, selectedNb, title);
     await refreshNotes(selectedNb);
+    if (isMobile) setOpenId(created.id);
   };
 
   const handleDragEnd = async (e: DragEndEvent) => {
@@ -125,6 +127,110 @@ export function NotesApp({ user }: Props) {
   };
 
   const openNote = notes.find((n) => n.id === openId);
+  const currentNotebook = notebooks.find((n) => n.slug === selectedNb);
+
+  if (isMobile) {
+    return (
+      <div className="notes-mobile">
+        {openNote && selectedNb ? (
+          <NoteEditor
+            user={user}
+            notebook={selectedNb}
+            note={openNote}
+            onBack={() => {
+              setOpenId(null);
+              if (selectedNb) refreshNotes(selectedNb).catch(console.error);
+            }}
+            onChange={(patch) =>
+              setNotes((prev) =>
+                prev.map((n) => (n.id === openNote.id ? { ...n, ...patch } : n)),
+              )
+            }
+            onDelete={() => {
+              setOpenId(null);
+              if (selectedNb) refreshNotes(selectedNb).catch(console.error);
+            }}
+          />
+        ) : (
+          <>
+            <header className="mobile-topbar">
+              <button
+                className="mobile-iconbtn"
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open notebooks"
+              >
+                ☰
+              </button>
+              <div className="mobile-title" title={currentNotebook?.title}>
+                {currentNotebook?.title ?? "Notes"}
+              </div>
+              <button
+                className="mobile-iconbtn"
+                onClick={handleCreateNote}
+                disabled={!selectedNb}
+                aria-label="New note"
+              >
+                +
+              </button>
+            </header>
+            <div className="mobile-list">
+              {!loaded ? null : !selectedNb ? (
+                <div className="empty-state">
+                  No notebooks yet.
+                  <br />
+                  <button
+                    className="btn btn-primary"
+                    style={{ marginTop: 12 }}
+                    onClick={handleCreateNotebook}
+                  >
+                    + new notebook
+                  </button>
+                </div>
+              ) : notes.length === 0 ? (
+                <div className="empty-state">No notes in this notebook yet.</div>
+              ) : (
+                notes.map((n) => (
+                  <button
+                    key={n.id}
+                    className="mobile-row"
+                    onClick={() => setOpenId(n.id)}
+                  >
+                    <span
+                      className="mobile-row-dot"
+                      style={{ background: `var(--note-${n.color})` }}
+                      aria-hidden
+                    />
+                    <span className="mobile-row-title">
+                      {n.title || "untitled"}
+                    </span>
+                    <span className="mobile-row-chev" aria-hidden>
+                      ›
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        )}
+        {drawerOpen && (
+          <MobileNotebookDrawer
+            notebooks={notebooks}
+            selectedSlug={selectedNb}
+            onSelect={(slug) => {
+              setSelectedNb(slug);
+              setOpenId(null);
+              setDrawerOpen(false);
+            }}
+            onCreate={async () => {
+              await handleCreateNotebook();
+              setDrawerOpen(false);
+            }}
+            onClose={() => setDrawerOpen(false)}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="notes-layout">
@@ -203,6 +309,58 @@ export function NotesApp({ user }: Props) {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function MobileNotebookDrawer({
+  notebooks,
+  selectedSlug,
+  onSelect,
+  onCreate,
+  onClose,
+}: {
+  notebooks: Notebook[];
+  selectedSlug: string | null;
+  onSelect: (slug: string) => void;
+  onCreate: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mobile-drawer-root" role="dialog" aria-label="Notebooks">
+      <div className="mobile-drawer-backdrop" onClick={onClose} />
+      <aside className="mobile-drawer">
+        <div className="mobile-drawer-header">
+          <span>NOTEBOOKS</span>
+          <button
+            className="nb-add"
+            onClick={onCreate}
+            aria-label="New notebook"
+          >
+            +
+          </button>
+        </div>
+        <div className="mobile-drawer-list">
+          {notebooks.length === 0 ? (
+            <div className="nb-empty">No notebooks yet.</div>
+          ) : (
+            notebooks.map((nb) => (
+              <button
+                key={nb.slug}
+                className={`mobile-row ${nb.slug === selectedSlug ? "active" : ""}`}
+                onClick={() => onSelect(nb.slug)}
+              >
+                <span
+                  className="mobile-row-dot"
+                  style={{ background: `var(--note-${nb.color})` }}
+                  aria-hidden
+                />
+                <span className="mobile-row-title">{nb.title}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
