@@ -11,8 +11,9 @@ import {
 import { validSlug } from "./store";
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "gemma4:e2b";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "gemma4:26b";
 const KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE ?? "24h";
+const NUM_CTX = Number(process.env.OLLAMA_NUM_CTX ?? 65536);
 const SEARXNG_URL = process.env.SEARXNG_URL ?? "http://127.0.0.1:8080";
 const FETCH_MAX_CHARS = 8000;
 const FETCH_TIMEOUT_MS = 15000;
@@ -355,6 +356,7 @@ assistant.post("/chat", async (c) => {
             stream: true,
             think: false,
             keep_alive: KEEP_ALIVE,
+            options: { num_ctx: NUM_CTX },
           }),
         });
         if (!res.ok || !res.body) {
