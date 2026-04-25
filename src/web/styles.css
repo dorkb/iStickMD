@@ -490,3 +490,204 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; }
   margin-top: 16px; color: var(--muted); font-size: 12px; padding: 4px;
 }
 .picker-cancel:hover { color: var(--fg); }
+
+/* ============================================================
+   Mobile shell (≤ 768px)
+   ============================================================ */
+
+.mobile-app {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.mobile-content {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ----- Bottom tabbar ----- */
+.mobile-tabbar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--rail);
+  border-top: 1px solid var(--border);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+}
+.mobile-tab {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px;
+  padding: 6px 4px;
+  color: var(--muted);
+  border-radius: 8px;
+  font-size: 10px;
+  letter-spacing: .3px;
+}
+.mobile-tab:hover { background: #1c1c1c; }
+.mobile-tab.active { color: var(--accent); }
+.mobile-tab-icon { font-size: 18px; line-height: 1; }
+.mobile-tab-label { font-size: 10px; }
+.mobile-tab-avatar {
+  width: 22px; height: 22px; border-radius: 50%;
+  color: #111; font-weight: 700; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ----- Mobile topbar (per-app) ----- */
+.mobile-topbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 10px) 10px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.mobile-iconbtn {
+  width: 38px; height: 38px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg); font-size: 18px;
+  flex-shrink: 0;
+}
+.mobile-iconbtn:hover { background: #1f1f1f; }
+.mobile-iconbtn:disabled { opacity: .35; cursor: not-allowed; }
+.mobile-title {
+  flex: 1; min-width: 0;
+  font-size: 15px; font-weight: 600;
+  color: var(--fg);
+  text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ----- Generic mobile list rows ----- */
+.mobile-list {
+  flex: 1; overflow: auto;
+  padding: 6px 0;
+}
+.mobile-row {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; text-align: left;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  background: transparent;
+}
+.mobile-row:active { background: #1c1c1c; }
+.mobile-row.active { background: #1f1f1f; }
+.mobile-row-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.mobile-row-title {
+  flex: 1; min-width: 0;
+  font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mobile-row-chev {
+  color: var(--muted); font-size: 18px;
+}
+
+/* ----- Notes mobile container ----- */
+.notes-mobile,
+.assistant-mobile {
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 0;
+}
+
+/* ----- Mobile drawer (slide-in from left) ----- */
+.mobile-drawer-root {
+  position: fixed; inset: 0;
+  z-index: 50;
+  display: flex;
+}
+.mobile-drawer-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.55);
+  animation: drawer-fade .2s ease-out;
+}
+.mobile-drawer {
+  position: relative;
+  width: 84%; max-width: 320px;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: drawer-slide .2s ease-out;
+}
+.mobile-drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 14px 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.mobile-drawer-list {
+  flex: 1; overflow: auto;
+  padding: 6px 0;
+}
+@keyframes drawer-slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes drawer-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ----- Assistant mobile thread + composer ----- */
+.asst-thread-mobile {
+  flex: 1; min-height: 0;
+  padding: 12px 14px 12px;
+}
+.asst-composer-mobile {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  background: var(--bg);
+  display: flex; gap: 8px; align-items: flex-end;
+  flex-shrink: 0;
+}
+.asst-composer-mobile textarea {
+  flex: 1; resize: none;
+  background: #0e0e0e; border: 1px solid var(--border);
+  border-radius: 18px; padding: 10px 14px;
+  color: var(--fg); font-size: 16px; font-family: inherit;
+  outline: none; line-height: 1.4;
+  min-height: 40px; max-height: 140px;
+}
+.asst-composer-mobile textarea:focus { border-color: var(--accent); }
+.asst-composer-mobile .btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  padding: 0; font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ----- NoteEditor on mobile (inside .notes-mobile) ----- */
+.notes-mobile .editor {
+  border-radius: 0;
+  margin: 0; max-width: none;
+  flex: 1; min-height: 0;
+}
+.notes-mobile .editor-toolbar {
+  padding: calc(env(safe-area-inset-top) + 10px) 12px 10px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.notes-mobile .editor-title { font-size: 17px; }
+.notes-mobile .editor-body { padding: 14px; }
+.notes-mobile .editor-textarea { font-size: 15px; min-height: 50vh; }
+
+/* Bigger color dots on mobile so they're tappable */
+.notes-mobile .color-dot { width: 22px; height: 22px; }
+
+/* ----- Hide rail-only elements (none currently, but reserved) ----- */
+@media (max-width: 768px) {
+  /* Make sure the legacy desktop grid never leaks if isMobile lags */
+  .app { grid-template-columns: 0 1fr; }
+  .rail { display: none; }
+}
