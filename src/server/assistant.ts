@@ -315,12 +315,43 @@ async function systemPrompt(user: string, displayName: string): Promise<string> 
 
 const assistant = new Hono<{ Variables: { user: string } }>();
 
+assistant.get("/models", async (c) => {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`);
+    if (!res.ok) {
+      return c.json({ error: `ollama ${res.status}`, models: [], default: OLLAMA_MODEL }, 502);
+    }
+    const json = (await res.json()) as {
+      models?: Array<{
+        name?: string;
+        size?: number;
+        details?: { parameter_size?: string; family?: string };
+      }>;
+    };
+    const models = (json.models ?? [])
+      .map((m) => ({
+        name: m.name ?? "",
+        size: m.size ?? 0,
+        parameter_size: m.details?.parameter_size ?? "",
+        family: m.details?.family ?? "",
+      }))
+      .filter((m) => m.name)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return c.json({ models, default: OLLAMA_MODEL });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg, models: [], default: OLLAMA_MODEL }, 502);
+  }
+});
+
 assistant.post("/chat", async (c) => {
   const body = await c.req.json<{
     messages: { role: "user" | "assistant"; content: string }[];
     displayName?: string;
+    model?: string;
   }>();
   const user = c.var.user;
+  const model = (body.model ?? "").trim() || OLLAMA_MODEL;
 
   const messages: ChatMessage[] = [
     { role: "system", content: await systemPrompt(user, body.displayName ?? user) },
@@ -350,7 +381,7 @@ assistant.post("/chat", async (c) => {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            model: OLLAMA_MODEL,
+            model,
             messages,
             tools: TOOLS,
             stream: true,

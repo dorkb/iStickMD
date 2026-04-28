@@ -48,6 +48,15 @@ type ChatSummary = {
 
 type Props = { user: string; displayName: string; isMobile?: boolean };
 
+type ModelInfo = {
+  name: string;
+  size: number;
+  parameter_size: string;
+  family: string;
+};
+
+const MODEL_PREF_KEY = "istickmd:assistant-model";
+
 export function AssistantApp({ user, displayName, isMobile = false }: Props) {
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -56,6 +65,15 @@ export function AssistantApp({ user, displayName, isMobile = false }: Props) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [model, setModel] = useState<string>(() => {
+    try {
+      return localStorage.getItem(MODEL_PREF_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
 
@@ -82,6 +100,44 @@ export function AssistantApp({ user, displayName, isMobile = false }: Props) {
     setStats(ZERO_STATS);
     refreshChats();
   }, [user, refreshChats]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/u/${user}/assistant/models`);
+        const data = (await r.json()) as {
+          models?: ModelInfo[];
+          default?: string;
+          error?: string;
+        };
+        if (!alive) return;
+        const list = data.models ?? [];
+        setModels(list);
+        setModelsError(data.error ?? null);
+        setModel((prev) => {
+          if (prev && list.some((m) => m.name === prev)) return prev;
+          if (data.default && list.some((m) => m.name === data.default)) return data.default;
+          return list[0]?.name ?? "";
+        });
+      } catch (e) {
+        if (!alive) return;
+        setModelsError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!model) return;
+    try {
+      localStorage.setItem(MODEL_PREF_KEY, model);
+    } catch {
+      // ignore quota / privacy mode
+    }
+  }, [model]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -225,7 +281,7 @@ export function AssistantApp({ user, displayName, isMobile = false }: Props) {
       const res = await fetch(`/api/u/${user}/assistant/chat`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: serverMessages, displayName }),
+        body: JSON.stringify({ messages: serverMessages, displayName, model }),
       });
       if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`);
 
@@ -474,6 +530,13 @@ export function AssistantApp({ user, displayName, isMobile = false }: Props) {
       <section className="chat-main">
         <div className="content-header">
           <h1>ASSISTANT</h1>
+          <ModelPicker
+            models={models}
+            value={model}
+            onChange={setModel}
+            disabled={busy}
+            error={modelsError}
+          />
           <TokenCounter stats={stats} />
           <button
             className="btn"
@@ -548,6 +611,46 @@ const TOOL_ICON: Record<string, string> = {
   web_search: "🔎",
   fetch_url: "🌐",
 };
+
+function ModelPicker({
+  models,
+  value,
+  onChange,
+  disabled,
+  error,
+}: {
+  models: ModelInfo[];
+  value: string;
+  onChange: (v: string) => void;
+  disabled: boolean;
+  error: string | null;
+}) {
+  if (error && models.length === 0) {
+    return (
+      <span className="asst-model-err" title={error}>
+        ollama unreachable
+      </span>
+    );
+  }
+  if (models.length === 0) {
+    return <span className="asst-model-err">no models</span>;
+  }
+  return (
+    <select
+      className="asst-model"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      title="Ollama model"
+    >
+      {models.map((m) => (
+        <option key={m.name} value={m.name}>
+          {m.parameter_size ? `${m.name} · ${m.parameter_size}` : m.name}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 function TokenCounter({ stats }: { stats: Stats }) {
   if (stats.prompt === 0 && stats.completion === 0) return null;

@@ -340,6 +340,19 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; }
   color: var(--muted); opacity: .75;
   letter-spacing: .3px;
 }
+.asst-model {
+  background: #1f1f1f; color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 8px; font-size: 12px; font-family: inherit;
+  letter-spacing: .2px; cursor: pointer; outline: none;
+  max-width: 240px;
+}
+.asst-model:hover:not(:disabled) { border-color: var(--accent); }
+.asst-model:disabled { opacity: .5; cursor: not-allowed; }
+.asst-model-err {
+  font-size: 11px; color: #c97070;
+  letter-spacing: .3px; text-transform: uppercase;
+}
 .asst-msg { display: flex; }
 .asst-msg-user { justify-content: flex-end; }
 .asst-msg-ai { justify-content: flex-start; }
