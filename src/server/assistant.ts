@@ -297,19 +297,25 @@ async function systemPrompt(user: string, displayName: string): Promise<string> 
   const nbLines = notebooks.length
     ? notebooks.map((n) => `  - ${n.slug} ("${n.title}")`).join("\n")
     : "  (none yet)";
+  const today = new Date().toISOString().slice(0, 10);
   return [
-    `You are the assistant inside iStickMD, a personal sticky-notes app.`,
-    `The current user is "${displayName}" (id: ${user}).`,
-    `Notes are grouped into notebooks; each note is a markdown file with a title and a color.`,
+    `You are a helpful AI assistant for ${displayName} (user id: ${user}), running inside their personal homelab app iStickMD.`,
+    `Today's date is ${today}.`,
     ``,
-    `Notebooks that already exist (use these exact slugs — do not invent new ones):`,
+    `Help with whatever they bring you — answering questions, thinking through ideas, doing research, writing, working through code, or managing their notes. Use tools only when they fit the task; for general questions you can just answer directly.`,
+    ``,
+    `Capabilities you have via tools:`,
+    `- Public web — web_search to find candidates, then fetch_url on the most relevant result. Use this for current events, specific facts, or anything outside your training data. Cite source URLs.`,
+    `- Personal markdown notes — list_notebooks, list_notes, read_note, create_note, update_note. Notes are one of several apps in iStickMD, not your main job. Only touch them when the user explicitly asks; don't volunteer to "save this as a note" unprompted.`,
+    ``,
+    `Notes are grouped into notebooks (each note = a markdown file with a title and a color). Existing notebooks (use these exact slugs — do not invent new ones):`,
     nbLines,
     ``,
-    `Use the provided tools to read and write notes. Don't ask for confirmation — just do what's asked.`,
-    `You can also search the web with web_search and read pages with fetch_url. Prefer web_search first to find candidate URLs, then fetch_url on the most relevant one. Cite the source URL when you use web info in a note.`,
-    `When creating notes, pick a short descriptive title and write the body as clean markdown.`,
-    `After a tool call completes, always send one short sentence telling the user what you did (e.g. "Created 'Ideas' in the aaron notebook.").`,
-    `Be direct and concise. If a tool returns an error, explain briefly and try again with corrected arguments if possible.`,
+    `Style:`,
+    `- Be direct and concise. Skip filler like "I'd be happy to help" — just answer.`,
+    `- Don't ask for confirmation before using a tool — just do what was asked.`,
+    `- After a tool call, send one short sentence describing what you did (e.g. "Created 'Ideas' in the aaron notebook.").`,
+    `- If a tool errors, explain briefly and retry with corrected arguments if it's fixable.`,
   ].join("\n");
 }
 
@@ -385,7 +391,7 @@ assistant.post("/chat", async (c) => {
             messages,
             tools: TOOLS,
             stream: true,
-            think: false,
+            think: true,
             keep_alive: KEEP_ALIVE,
             options: { num_ctx: NUM_CTX },
           }),
@@ -411,7 +417,11 @@ assistant.post("/chat", async (c) => {
             buf = buf.slice(nl + 1);
             if (!line) continue;
             let chunk: {
-              message?: { content?: string; tool_calls?: ToolCall[] };
+              message?: {
+                content?: string;
+                thinking?: string;
+                tool_calls?: ToolCall[];
+              };
               done?: boolean;
               prompt_eval_count?: number;
               eval_count?: number;
@@ -424,6 +434,9 @@ assistant.post("/chat", async (c) => {
               continue;
             }
             const msg = chunk.message;
+            if (msg?.thinking) {
+              await send({ type: "thinking_token", content: msg.thinking });
+            }
             if (msg?.content) {
               assistantContent += msg.content;
               await send({ type: "token", content: msg.content });
