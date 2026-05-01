@@ -21,6 +21,29 @@ const FETCH_TIMEOUT_MS = 15000;
 const COLORS = ["yellow", "pink", "blue", "green", "purple", "orange", "gray"] as const;
 type Color = (typeof COLORS)[number];
 
+const thinkingCapabilityCache = new Map<string, Promise<boolean>>();
+
+function supportsThinking(model: string): Promise<boolean> {
+  const cached = thinkingCapabilityCache.get(model);
+  if (cached) return cached;
+  const promise = (async () => {
+    try {
+      const res = await fetch(`${OLLAMA_URL}/api/show`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: model }),
+      });
+      if (!res.ok) return false;
+      const json = (await res.json()) as { capabilities?: string[] };
+      return Array.isArray(json.capabilities) && json.capabilities.includes("thinking");
+    } catch {
+      return false;
+    }
+  })();
+  thinkingCapabilityCache.set(model, promise);
+  return promise;
+}
+
 type ChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
@@ -358,6 +381,7 @@ assistant.post("/chat", async (c) => {
   }>();
   const user = c.var.user;
   const model = (body.model ?? "").trim() || OLLAMA_MODEL;
+  const think = await supportsThinking(model);
 
   const messages: ChatMessage[] = [
     { role: "system", content: await systemPrompt(user, body.displayName ?? user) },
@@ -391,7 +415,7 @@ assistant.post("/chat", async (c) => {
             messages,
             tools: TOOLS,
             stream: true,
-            think: true,
+            think,
             keep_alive: KEEP_ALIVE,
             options: { num_ctx: NUM_CTX },
           }),
