@@ -4,7 +4,12 @@ import remarkGfm from "remark-gfm";
 
 type Entry =
   | { kind: "user"; content: string }
-  | { kind: "assistant"; content: string; streaming: boolean }
+  | {
+      kind: "assistant";
+      content: string;
+      thinking?: string;
+      streaming: boolean;
+    }
   | {
       kind: "tool";
       name: string;
@@ -16,6 +21,7 @@ type Entry =
 
 type ServerEvent =
   | { type: "token"; content: string }
+  | { type: "thinking_token"; content: string }
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; result: unknown }
   | { type: "tool_error"; name: string; error: string }
@@ -314,6 +320,18 @@ export function AssistantApp({ user, displayName, isMobile = false }: Props) {
                 out[out.length - 1] = { ...last, content: last.content + evt.content };
               return out;
             });
+          } else if (evt.type === "thinking_token") {
+            ensureAssistant();
+            setEntries((prev) => {
+              const out = [...prev];
+              const last = out[out.length - 1];
+              if (last?.kind === "assistant")
+                out[out.length - 1] = {
+                  ...last,
+                  thinking: (last.thinking ?? "") + evt.content,
+                };
+              return out;
+            });
           } else if (evt.type === "tool_call") {
             setEntries((prev) => {
               const out = prev.map((e) =>
@@ -589,12 +607,22 @@ function EntryView({ entry }: { entry: Entry }) {
   if (entry.kind === "assistant") {
     return (
       <div className="asst-msg asst-msg-ai">
-        <div className="asst-bubble">
-          {entry.content ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content}</ReactMarkdown>
-          ) : entry.streaming ? (
-            <span className="asst-dots">•••</span>
-          ) : null}
+        <div className="asst-msg-stack">
+          {entry.thinking && (
+            <ThinkingBlock
+              thinking={entry.thinking}
+              active={entry.streaming && !entry.content}
+            />
+          )}
+          {(entry.content || !entry.thinking) && (
+            <div className="asst-bubble">
+              {entry.content ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content}</ReactMarkdown>
+              ) : entry.streaming ? (
+                <span className="asst-dots">•••</span>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -611,6 +639,37 @@ const TOOL_ICON: Record<string, string> = {
   web_search: "🔎",
   fetch_url: "🌐",
 };
+
+function ThinkingBlock({
+  thinking,
+  active,
+}: {
+  thinking: string;
+  active: boolean;
+}) {
+  // Open while the model is still thinking; auto-collapse once the answer
+  // starts streaming (active flips false).
+  const [open, setOpen] = useState(active);
+  const wasActiveRef = useRef(active);
+  useEffect(() => {
+    if (wasActiveRef.current && !active) setOpen(false);
+    if (!wasActiveRef.current && active) setOpen(true);
+    wasActiveRef.current = active;
+  }, [active]);
+
+  return (
+    <div className={`asst-thinking ${open ? "open" : ""}`}>
+      <button className="asst-thinking-row" onClick={() => setOpen((v) => !v)}>
+        <span className="asst-thinking-icon">{active ? "💭" : "🧠"}</span>
+        <span className="asst-thinking-label">
+          {active ? "Thinking…" : "Thought process"}
+        </span>
+        <span className="asst-thinking-toggle">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && <div className="asst-thinking-body">{thinking}</div>}
+    </div>
+  );
+}
 
 function ModelPicker({
   models,

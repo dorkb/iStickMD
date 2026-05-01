@@ -382,6 +382,43 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; }
   border-radius: 6px; overflow-x: auto; font-size: 12.5px;
 }
 .asst-msg-ai .asst-bubble pre code { background: none; padding: 0; }
+
+.asst-msg-stack {
+  display: flex; flex-direction: column;
+  gap: 6px; max-width: 85%;
+}
+.asst-thinking {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #161616;
+  font-size: 12.5px;
+  overflow: hidden;
+  align-self: flex-start;
+}
+.asst-thinking-row {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 6px 10px;
+  background: transparent; border: none;
+  color: var(--muted); font-family: inherit; font-size: 12px;
+  cursor: pointer; text-align: left;
+}
+.asst-thinking-row:hover { color: var(--fg); }
+.asst-thinking-icon { font-size: 13px; }
+.asst-thinking-label {
+  flex: 1; letter-spacing: .3px;
+}
+.asst-thinking-toggle {
+  color: var(--muted); font-size: 11px;
+}
+.asst-thinking-body {
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px; line-height: 1.55;
+  font-style: italic;
+  white-space: pre-wrap; word-wrap: break-word;
+  max-height: 320px; overflow: auto;
+}
 .asst-dots {
   display: inline-block; color: var(--muted); letter-spacing: 2px;
   animation: asst-pulse 1.4s infinite;
